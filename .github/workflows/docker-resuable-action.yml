@@ -1,0 +1,297 @@
+name: Reusable Docker Build and Push
+
+on:
+  workflow_call:
+    inputs:
+
+      env:
+        description: "Deployment environment"
+        required: true
+        type: string
+
+      aws_region:
+        description: "AWS Region"
+        required: true
+        type: string
+
+      ecr_repository:
+        description: "ECR repository name"
+        required: true
+        type: string
+
+      dockerfile:
+        description: "Dockerfile path"
+        required: false
+        type: string
+        default: "Dockerfile"
+
+      iam_role:
+        description: "IAM Role ARN for AWS access"
+        required: true
+        type: string
+
+
+jobs:
+
+  build-and-push:
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract Account Info
+        id: get-account-no
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ACCOUNT_ENV="${{ inputs.env }}"
+
+          if [[ "$ACCOUNT_ENV" == "dev" ]]; then
+            ACCOUNT_ID="431662316646"
+
+          elif [[ "$ACCOUNT_ENV" == "intg" ]]; then
+            ACCOUNT_ID="431662316646"
+
+          elif [[ "$ACCOUNT_ENV" == "prep" ]]; then
+            ACCOUNT_ID="431662316646"
+
+          elif [[ "$ACCOUNT_ENV" == "prod" ]]; then
+            ACCOUNT_ID="431662316646"
+
+          else
+            echo "Invalid environment passed: $ACCOUNT_ENV"
+            exit 1
+          fi
+
+          echo "Environment : $ACCOUNT_ENV"
+          echo "Account ID  : $ACCOUNT_ID"
+
+          echo "ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+
+
+      - name: Extract Image Tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG=$(git rev-parse --short HEAD)
+
+          echo "Docker Image Tag: $TAG"
+
+          echo "IMAGE_TAG=$TAG" >> "$GITHUB_ENV"
+
+
+      # ---------------------------------------------------------
+      # Set AWS / ECR Variables
+      # ---------------------------------------------------------
+      - name: Set AWS and ECR Variables
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/GitHub-Docker"
+
+          ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ inputs.aws_region }}.amazonaws.com"
+
+          ECR_REPOSITORY="${{ inputs.ecr_repository }}"
+
+          IMAGE_NAME="${ECR_REGISTRY}/${ECR_REPOSITORY}"
+
+          SHA_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
+
+          LATEST_IMAGE="${IMAGE_NAME}:latest"
+
+          echo "ROLE_ARN=$ROLE_ARN" >> "$GITHUB_ENV"
+          echo "ECR_REGISTRY=$ECR_REGISTRY" >> "$GITHUB_ENV"
+          echo "ECR_REPOSITORY=$ECR_REPOSITORY" >> "$GITHUB_ENV"
+          echo "IMAGE_NAME=$IMAGE_NAME" >> "$GITHUB_ENV"
+          echo "SHA_IMAGE=$SHA_IMAGE" >> "$GITHUB_ENV"
+          echo "LATEST_IMAGE=$LATEST_IMAGE" >> "$GITHUB_ENV"
+
+          echo ""
+          echo "Environment  : ${{ inputs.env }}"
+          echo "Account ID   : $ACCOUNT_ID"
+          echo "AWS Region   : ${{ inputs.aws_region }}"
+          echo "Role ARN     : $ROLE_ARN"
+          echo "ECR Registry : $ECR_REGISTRY"
+          echo "ECR Repo     : $ECR_REPOSITORY"
+          echo "Image Tag    : $IMAGE_TAG"
+
+
+      # ---------------------------------------------------------
+      # Assume AWS Role using GitHub OIDC
+      # ---------------------------------------------------------
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.iam_role }}
+          aws-region: ${{ inputs.aws_region }}
+
+
+
+      - name: Configure AWS Credentials - Admin Role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+            role-to-assume: arn:aws:iam::${{ env.ACCOUNT_ID }}:role/terraform-iam-admin-role
+            role-chaining: true
+            aws-region: ${{ inputs.aws_region }}
+
+      # ---------------------------------------------------------
+      # Verify AWS Identity
+      # ---------------------------------------------------------
+      - name: Verify AWS Identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "AWS Identity:"
+          aws sts get-caller-identity
+
+
+      # ---------------------------------------------------------
+      # Login to Amazon ECR
+      # ---------------------------------------------------------
+      - name: Login to Amazon ECR
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Logging into ECR..."
+
+          aws ecr get-login-password \
+            --region "${{ inputs.aws_region }}" \
+            | docker login \
+                --username AWS \
+                --password-stdin "${{ env.ECR_REGISTRY }}"
+
+
+      # ---------------------------------------------------------
+      # Build Docker Image
+      # ---------------------------------------------------------
+      - name: Build Docker Image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Building Docker image..."
+
+          docker build \
+            -t "${{ env.SHA_IMAGE }}" \
+            -f "${{ inputs.dockerfile }}" \
+            .
+
+          echo "Docker image built successfully."
+          echo "Image: ${{ env.SHA_IMAGE }}"
+
+
+      # ---------------------------------------------------------
+      # Push SHA Tagged Image
+      # ---------------------------------------------------------
+      - name: Push SHA Tagged Image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Pushing SHA tagged image..."
+
+          docker push "${{ env.SHA_IMAGE }}"
+
+          echo "Successfully pushed:"
+          echo "${{ env.SHA_IMAGE }}"
+
+
+      # ---------------------------------------------------------
+      # Delete Existing Latest Image
+      # ---------------------------------------------------------
+      - name: Delete Existing Latest Image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Checking for existing latest image..."
+
+          if aws ecr describe-images \
+              --repository-name "${{ env.ECR_REPOSITORY }}" \
+              --image-ids imageTag=latest \
+              --region "${{ inputs.aws_region }}" \
+              > /dev/null 2>&1
+          then
+
+            echo "Existing latest image found."
+
+            echo "Deleting existing latest image..."
+
+            aws ecr batch-delete-image \
+              --repository-name "${{ env.ECR_REPOSITORY }}" \
+              --image-ids imageTag=latest \
+              --region "${{ inputs.aws_region }}"
+
+            echo "Existing latest image deleted."
+
+          else
+
+            echo "No existing latest image found."
+
+          fi
+
+
+      # ---------------------------------------------------------
+      # Tag Image as Latest
+      # ---------------------------------------------------------
+      - name: Tag Image as Latest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Tagging image as latest..."
+
+          docker tag \
+            "${{ env.SHA_IMAGE }}" \
+            "${{ env.LATEST_IMAGE }}"
+
+          echo "Latest image:"
+          echo "${{ env.LATEST_IMAGE }}"
+
+
+      # ---------------------------------------------------------
+      # Push Latest Image
+      # ---------------------------------------------------------
+      - name: Push Latest Image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Pushing latest image..."
+
+          docker push "${{ env.LATEST_IMAGE }}"
+
+          echo "Successfully pushed:"
+          echo "${{ env.LATEST_IMAGE }}"
+
+
+      # ---------------------------------------------------------
+      # Summary
+      # ---------------------------------------------------------
+      - name: Docker Image Summary
+        shell: bash
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "       Docker Image Deployment"
+          echo "=========================================="
+          echo "Environment : ${{ inputs.env }}"
+          echo "AWS Account : ${{ env.ACCOUNT_ID }}"
+          echo "AWS Region  : ${{ inputs.aws_region }}"
+          echo "ECR Repo    : ${{ env.ECR_REPOSITORY }}"
+          echo "SHA Tag     : ${{ env.IMAGE_TAG }}"
+          echo "SHA Image   : ${{ env.SHA_IMAGE }}"
+          echo "Latest Image: ${{ env.LATEST_IMAGE }}"
+          echo "=========================================="
