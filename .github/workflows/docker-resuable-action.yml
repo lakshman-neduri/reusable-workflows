@@ -24,11 +24,10 @@ on:
         required: false
         type: string
         default: "Dockerfile"
-
+    secrets:
       iam_role:
         description: "IAM Role ARN for AWS access"
         required: true
-        type: string
 
 
 jobs:
