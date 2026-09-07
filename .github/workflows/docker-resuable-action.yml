@@ -14,6 +14,12 @@ on:
         required: true
         type: string
 
+      docker_context:
+        description: "Docker build context"
+        required: false
+        type: string
+        default: "."
+
       ecr_repository:
         description: "ECR repository name"
         required: true
@@ -190,7 +196,7 @@ jobs:
           docker build \
             -t "${{ env.SHA_IMAGE }}" \
             -f "${{ inputs.dockerfile }}" \
-            .
+            "${{ inputs.docker_context }}"
 
           echo "Docker image built successfully."
           echo "Image: ${{ env.SHA_IMAGE }}"
