@@ -207,7 +207,7 @@ jobs:
 
           docker build \
             -t "${{ env.SHA_IMAGE }}" \
-            -f "${{ inputs.dockerfile }}" \
+            -f "${{ inputs.docker_context }}/${{ inputs.dockerfile }}" \
             "${{ inputs.docker_context }}"
 
           echo "Docker image built successfully."
