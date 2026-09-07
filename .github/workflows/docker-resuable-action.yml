@@ -51,6 +51,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Debug files
+        run: |
+          pwd
+          echo "Workspace:"
+          ls -la
+
+          echo "flask-poc:"
+          ls -la flask-poc
+
+          echo "requirements:"
+          ls -la flask-poc/requirements.txt
+
       - name: Extract Account Info
         id: get-account-no
         shell: bash
