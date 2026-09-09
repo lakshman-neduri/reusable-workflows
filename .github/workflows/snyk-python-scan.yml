@@ -18,6 +18,13 @@ on:
         type: string
         default: "high"
 
+      error-flag:
+        description: "Flag to determine if the workflow should fail on vulnerabilities"
+        required: false
+        type: boolean
+        default: true
+
+
     secrets:
       SNYK_TOKEN:
         required: true
@@ -26,7 +33,7 @@ jobs:
   snyk_scan:
     name: Snyk Python Dependency Scan
     runs-on: ubuntu-latest
-
+    continue-on-error: ${{ inputs.error-flag }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
