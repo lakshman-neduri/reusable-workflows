@@ -12,6 +12,12 @@ on:
         required: true
         type: string
 
+      snyk_severity_threshold:
+        description: "Snyk severity threshold"
+        required: false
+        type: string
+        default: "high"
+
     secrets:
       SNYK_TOKEN:
         required: true
@@ -82,7 +88,7 @@ jobs:
             snyk test \
               --file="$file" \
               --package-manager=pip \
-              --severity-threshold=high \
+              --severity-threshold=${{ inputs.snyk_severity_threshold }} \
               --command=python3
           done <<< "$files"
 
