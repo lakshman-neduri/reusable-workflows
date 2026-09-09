@@ -16,19 +16,6 @@ on:
       SNYK_TOKEN:
         required: true
 
-name: Snyk Python Scan
-
-on:
-  workflow_call:
-    inputs:
-      snyk_org_id:
-        required: true
-        type: string
-
-    secrets:
-      SNYK_TOKEN:
-        required: true
-
 jobs:
   snyk_scan:
     name: Snyk Python Dependency Scan
